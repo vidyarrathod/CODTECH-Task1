@@ -1,0 +1,99 @@
+/* Vulnerability Scanning Tool */
+import socket
+import requests
+from concurrent.futures import ThreadPoolExecutor
+
+class VulnerabilityScanner:
+    def __init__(self, target):
+        self.target = target
+        self.open_ports = []
+        self.vulnerabilities = []
+        
+    def scan_port(self, port):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        try:
+            result = sock.connect_ex((self.target, port))
+            if result == 0:
+                service = self.identify_service(port)
+                self.open_ports.append((port, service))
+        except:
+            pass
+        finally:
+            sock.close()
+            
+    def identify_service(self, port):
+        common_ports = {
+            21: "FTP",
+            22: "SSH",
+            23: "Telnet",
+            25: "SMTP",
+            80: "HTTP",
+            443: "HTTPS",
+            3306: "MySQL",
+            5432: "PostgreSQL"
+        }
+        return common_ports.get(port, "Unknown")
+        
+    def scan_web_vulnerabilities(self):
+        if not any(port[0] in [80, 443] for port in self.open_ports):
+            return
+            
+        try:
+            # Check HTTP headers
+            url = f"http://{self.target}"
+            response = requests.get(url, timeout=5)
+            headers = response.headers
+            
+            # Check for security headers
+            security_headers = {
+                'X-XSS-Protection': 'Missing XSS protection header',
+                'X-Frame-Options': 'Missing clickjacking protection',
+                'X-Content-Type-Options': 'Missing MIME-type protection',
+                'Strict-Transport-Security': 'Missing HSTS header'
+            }
+            
+            for header, message in security_headers.items():
+                if header not in headers:
+                    self.vulnerabilities.append(message)
+                    
+            # Check for server information disclosure
+            if 'Server' in headers:
+                self.vulnerabilities.append(f"Server information disclosed: {headers['Server']}")
+                
+        except requests.exceptions.RequestException as e:
+            self.vulnerabilities.append(f"Web scan error: {str(e)}")
+            
+    def run_scan(self, port_range=(1, 1024)):
+        print(f"Starting scan on {self.target}")
+        
+        # Port scanning
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            executor.map(self.scan_port, range(port_range[0], port_range[1] + 1))
+            
+        # Web vulnerability scanning
+        self.scan_web_vulnerabilities()
+        
+        # Report findings
+        self.report_findings()
+        
+    def report_findings(self):
+        print("\n=== Scan Results ===")
+        
+        print("\nOpen Ports:")
+        for port, service in self.open_ports:
+            print(f"Port {port}: {service}")
+            
+        print("\nVulnerabilities Found:")
+        if self.vulnerabilities:
+            for vuln in self.vulnerabilities:
+                print(f"- {vuln}")
+        else:
+            print("No obvious vulnerabilities detected")
+
+# Example usage in Jupyter Notebook
+target = "192.168.1.1"  # Replace with the actual target
+port_range = (1, 100)  # Define port range to scan
+
+scanner = VulnerabilityScanner(target)
+scanner.run_scan(port_range=port_range)
